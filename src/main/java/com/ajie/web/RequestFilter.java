@@ -15,7 +15,9 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.ajie.chilli.utils.common.StringUtil;
 import com.ajie.dao.pojo.TbUser;
+import com.ajie.web.utils.URLUtil;
 
 /**
  * 对请求进行拦截处理
@@ -26,17 +28,26 @@ public class RequestFilter implements Filter {
 
 	private static final Logger logger = LoggerFactory.getLogger(RequestFilter.class);
 
-	/** 忽略验证的uri */
-	protected List<String> ignoreUri;
+	/** 忽略模式，对配置的请求忽略拦截 */
+	protected static final String FILTER_MODE_IGNORE = "ignore";
+
+	/** 拦截模式，对配置的请求进行拦截 */
+	protected static final String FILTER_MODE_INTERCEPT = "intercept";
+
+	/** 验证模式 —— 拦截或忽略 */
+	protected String mode;
+
+	/** 对此类uri进行拦截/忽略验证 */
+	protected List<String> uriList;
 
 	/** 编码 */
 	protected String encoding;
 
-	/** 远程用户服务 */
+	/** 远程用户服务接口 */
 	protected RemoteUserService userService;
 
 	/** 登录链接 */
-	protected String loginUrl;
+	protected String loginURL;
 
 	public RemoteUserService getUserService() {
 		return userService;
@@ -46,25 +57,28 @@ public class RequestFilter implements Filter {
 		this.userService = userService;
 	}
 
-	public static Logger getLogger() {
-		return logger;
+	public String getMode() {
+		return mode;
 	}
 
-	public List<String> getIgnoreUri() {
-		return ignoreUri;
-	}
-	
-
-	public String getLoginUrl() {
-		return loginUrl;
+	public void setMode(String mode) {
+		this.mode = mode;
 	}
 
-	public void setLoginUrl(String loginUrl) {
-		this.loginUrl = loginUrl;
+	public List<String> getUriList() {
+		return uriList;
 	}
 
-	public void setIgnoreUri(List<String> ignoreUri) {
-		this.ignoreUri = ignoreUri;
+	public String getLoginURL() {
+		return loginURL;
+	}
+
+	public void setloginURL(String loginURL) {
+		this.loginURL = loginURL;
+	}
+
+	public void setUriList(List<String> uriList) {
+		this.uriList = uriList;
 	}
 
 	public String getEncoding() {
@@ -87,9 +101,17 @@ public class RequestFilter implements Filter {
 		HttpServletResponse res = (HttpServletResponse) response;
 		request.setCharacterEncoding(encoding);
 		String uri = req.getRequestURI();
-		if (ignoreUri.contains(uri)) {
-			chain.doFilter(request, response);
-			return;
+		if (StringUtil.eq(FILTER_MODE_IGNORE, mode)) {
+			if (URLUtil.match(uriList, uri)) {
+				chain.doFilter(request, response);
+				return;
+			}
+		}
+		if ((StringUtil.eq(FILTER_MODE_INTERCEPT, mode))) {
+			if (!URLUtil.match(uriList, uri)) {
+				chain.doFilter(request, response);
+				return;
+			}
 		}
 		TbUser user = userService.getUser(req);
 		if (null == user) {
@@ -109,6 +131,9 @@ public class RequestFilter implements Filter {
 	@Override
 	public void destroy() {
 
+	}
+
+	public static void main(String[] args) {
 	}
 
 }
