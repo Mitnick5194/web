@@ -8,7 +8,7 @@ import java.util.List;
  * 
  * @author niezhenjie
  */
-public class URLUtil {
+public final class URLUtil {
 
 	private URLUtil() {
 	}
@@ -72,7 +72,7 @@ public class URLUtil {
 	}
 
 	/**
-	 * 两个url单独作匹配
+	 * 两个url单独作匹配 , 单个通配符*
 	 * 
 	 * @param urls
 	 *            规则列表
@@ -138,7 +138,7 @@ public class URLUtil {
 		}
 		while (idx != lastIdx) {
 			int nextIdx = pattern.indexOf("*", idx + 1);
-			// *xxx*中间部分，即 xxx
+			// *xxx*星号中间部分内容，即 xxx
 			String match = pattern.substring(idx + 1, nextIdx);
 			int matchIdx = url.indexOf(match);
 			if (matchIdx == -1) {

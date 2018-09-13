@@ -18,6 +18,7 @@ import com.ajie.chilli.utils.common.JsonUtil;
 import com.ajie.chilli.utils.common.StringUtil;
 import com.ajie.dao.pojo.TbUser;
 import com.ajie.web.RemoteUserService;
+import com.ajie.web.utils.CookieUtils;
 
 /**
  * 远程用户服务实现
@@ -26,6 +27,7 @@ import com.ajie.web.RemoteUserService;
  */
 public class RemoteUserServiceImpl implements RemoteUserService {
 	private static final Logger logger = LoggerFactory.getLogger(RemoteUserServiceImpl.class);
+
 	/**
 	 * sso系统链接
 	 */
@@ -100,14 +102,15 @@ public class RemoteUserServiceImpl implements RemoteUserService {
 		if (null == cookies || cookies.length == 0) {
 			return null;
 		}
-		for (Cookie cookie : cookies) {
-			if (null == cookie)
-				continue;
-			if (RemoteUserService.USER_TOKEN.equals(cookie.getName())) {
-				return cookie.getValue();
-			}
-		}
-		return null;
+		/*	for (Cookie cookie : cookies) {
+				if (null == cookie)
+					continue;
+				if (RemoteUserService.USER_TOKEN.equals(cookie.getName())) {
+					return cookie.getValue();
+				}
+			}*/
+		String val = CookieUtils.getCookieValue(request, RemoteUserService.USER_TOKEN);
+		return val;
 	}
 
 	@Override
@@ -130,7 +133,7 @@ public class RemoteUserServiceImpl implements RemoteUserService {
 		}
 		Map<String, String> param = new HashMap<String, String>();
 		param.put("ref", ref);
-		HttpClientUtil.doGet(url , param);
+		HttpClientUtil.doGet(url, param);
 	}
 
 }
