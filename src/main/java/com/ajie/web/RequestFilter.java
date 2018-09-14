@@ -15,7 +15,7 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.ajie.chilli.utils.common.StringUtil;
+import com.ajie.chilli.utils.common.StringUtils;
 import com.ajie.dao.pojo.TbUser;
 import com.ajie.web.utils.URLUtil;
 
@@ -101,13 +101,13 @@ public class RequestFilter implements Filter {
 		HttpServletResponse res = (HttpServletResponse) response;
 		request.setCharacterEncoding(encoding);
 		String uri = req.getRequestURI();
-		if (StringUtil.eq(FILTER_MODE_IGNORE, mode)) {
+		if (StringUtils.eq(FILTER_MODE_IGNORE, mode)) {
 			if (URLUtil.match(uriList, uri)) {
 				chain.doFilter(request, response);
 				return;
 			}
 		}
-		if ((StringUtil.eq(FILTER_MODE_INTERCEPT, mode))) {
+		if ((StringUtils.eq(FILTER_MODE_INTERCEPT, mode))) {
 			if (!URLUtil.match(uriList, uri)) {
 				chain.doFilter(request, response);
 				return;

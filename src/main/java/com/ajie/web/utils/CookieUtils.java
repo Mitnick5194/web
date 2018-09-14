@@ -11,7 +11,7 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.ajie.chilli.utils.common.StringUtil;
+import com.ajie.chilli.utils.common.StringUtils;
 
 /**
  * Cookie 工具类
@@ -58,7 +58,7 @@ public final class CookieUtils {
 			return null;
 		String value = null;
 		for (Cookie cookie : cookies) {
-			if (StringUtil.eq(cookieName, cookie.getName())) {
+			if (StringUtils.eq(cookieName, cookie.getName())) {
 				if (null != encode) {
 					try {
 						value = URLDecoder.decode(cookie.getValue(), encode);
@@ -158,7 +158,7 @@ public final class CookieUtils {
 			domainName = "";
 		} else {
 			serverName = serverName.toLowerCase();
-			// 去除http或者https
+			// 去除http://或者https://
 			if (serverName.startsWith("http")) {
 				serverName = serverName.substring(7);
 			} else {
@@ -181,10 +181,10 @@ public final class CookieUtils {
 				domainName = serverName;
 			}
 		}
-
-		if (domainName != null && domainName.indexOf(":") > 0) {
-			String[] ary = domainName.split("\\:"); // 去端口
-			domainName = ary[0];
+		// 去端口
+		int portIdx = -1;
+		if (domainName != null && (portIdx = domainName.indexOf(":")) > 0) {
+			domainName = domainName.substring(0, portIdx);
 		}
 		return domainName;
 	}

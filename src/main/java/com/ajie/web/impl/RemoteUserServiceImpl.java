@@ -1,5 +1,6 @@
 package com.ajie.web.impl;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
@@ -13,9 +14,10 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.ajie.chilli.common.ResponseResult;
 import com.ajie.chilli.utils.HttpClientUtil;
-import com.ajie.chilli.utils.common.JsonUtil;
-import com.ajie.chilli.utils.common.StringUtil;
+import com.ajie.chilli.utils.common.JsonUtils;
+import com.ajie.chilli.utils.common.StringUtils;
 import com.ajie.dao.pojo.TbUser;
 import com.ajie.web.RemoteUserService;
 import com.ajie.web.utils.CookieUtils;
@@ -31,37 +33,56 @@ public class RemoteUserServiceImpl implements RemoteUserService {
 	/**
 	 * sso系统链接
 	 */
-	protected String ssoURL;
+	protected String ssoBaseURL;
 
-	public String getSsoUrl() {
-		return ssoURL;
+	/** sso系统的登录页面 */
+	protected static final String login_uri = "user/loginpage.do";
+
+	protected static final String token_uri = "user/getUserByToken.do";
+
+	protected static final String role_uri = "user/checkRole.do";
+
+	public void setSsoBaseURL(String ssoBaseURL) {
+		synchronized (ssoBaseURL) {
+			if (null == ssoBaseURL) {
+				logger.error("找不到sso系统地址");
+				return;
+			}
+			if (!ssoBaseURL.endsWith(File.separator)) {
+				ssoBaseURL += File.separator;
+			}
+		}
+		this.ssoBaseURL = ssoBaseURL;
 	}
 
-	public void setSsoUrl(String ssoUrl) {
-		this.ssoURL = ssoUrl;
+	public String getSsoBaseURL() {
+		return ssoBaseURL;
 	}
 
 	@Override
 	public TbUser getUserByToken(String token) throws IOException {
-		if (null == ssoURL) {
+		if (null == ssoBaseURL) {
 			return null;
 		}
 		Map<String, String> param = new HashMap<String, String>();
 		param.put("token", token);
-		String loginURI = "user/getUserByToken.do";
-		String url = ssoURL + loginURI;
-		String result = HttpClientUtil.doGet(url, param);
-		if (StringUtil.isEmpty(result)) {
+		String result = HttpClientUtil.doGet(ssoBaseURL + token_uri, param);
+		if (StringUtils.isEmpty(result)) {
 			return null;
 		}
-		TbUser user = JsonUtil.toBean(result, TbUser.class);
+		ResponseResult response = JsonUtils.toBean(result, ResponseResult.class);
+		if (response.getCode() != ResponseResult.CODE_SUC) {
+			logger.error("远程调用sso系统token登录失败，token= " + token, "，失败原因: " + response.getMsg());
+			return null;
+		}
+		TbUser user = (TbUser) response.getData();
 		return user;
 	}
 
 	@Override
 	public TbUser getUser(HttpServletRequest request) throws IOException {
 		String token = getTokenByCookie(request);
-		if (StringUtil.isEmpty(token)) {
+		if (StringUtils.isEmpty(token)) {
 			return null;
 		}
 		return getUserByToken(token);
@@ -72,23 +93,26 @@ public class RemoteUserServiceImpl implements RemoteUserService {
 		if (null == user) {
 			return false;
 		}
-		if (StringUtil.isEmpty(url)) {
+		if (StringUtils.isEmpty(url)) {
 			return false;
 		}
-		if (null == ssoURL) {
+		if (null == ssoBaseURL) {
+			logger.error("找不到sso系统地址");
 			return false;
 		}
-		String checkRoleRUI = "checkRole.do";
-		String requrl = ssoURL + checkRoleRUI;
 		Map<String, String> param = new HashMap<String, String>();
 		param.put("user", user.getId() + "");
 		param.put("url", url);
-		String result = HttpClientUtil.doGet(requrl, param);
+		String result = HttpClientUtil.doGet(ssoBaseURL + role_uri, param);
 		if (null == result) {
 			return false;
 		}
-		Map<String, Object> ret = JsonUtil.stringToCollect(result);
-		return Boolean.valueOf(ret.get("ret").toString());
+		ResponseResult response = JsonUtils.toBean(result, ResponseResult.class);
+		if (response.getCode() != ResponseResult.CODE_SUC) {
+			logger.error("远程调用sso系统校验url权限失败，检测链接：" + url, "失败原因: " + response.getMsg());
+			return false;
+		}
+		return (boolean) response.getData();
 	}
 
 	/**
@@ -117,23 +141,17 @@ public class RemoteUserServiceImpl implements RemoteUserService {
 	public void gotoLogin(HttpServletRequest req, HttpServletResponse res) throws IOException {
 		StringBuffer refsb = req.getRequestURL();
 		String query = req.getQueryString();
-		String loginURI = "user/login.do";
-		String url = ssoURL + loginURI;
 		String ref = "";
 		if (null != refsb) {
 			ref = refsb.toString();
 		}
-		if (!StringUtil.isEmpty(query)) {
+		if (!StringUtils.isEmpty(query)) {
 			try {
 				ref += "%3f" + URLEncoder.encode(query, "utf-8");
 			} catch (UnsupportedEncodingException e) {
 				logger.warn("不支持utf-8字符编码转换" + query);
-				ref = "%3fquery";
 			}
 		}
-		Map<String, String> param = new HashMap<String, String>();
-		param.put("ref", ref);
-		HttpClientUtil.doGet(url, param);
+		res.sendRedirect(getSsoBaseURL() + login_uri + "?ref=" + ref);
 	}
-
 }
