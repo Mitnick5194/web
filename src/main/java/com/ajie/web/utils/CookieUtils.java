@@ -172,11 +172,11 @@ public final class CookieUtils {
 			int len = domains.length;
 			if (len > 3) {
 				// www.xxx.com.cn 设置后三层为域名
-				domainName = "." + domains[len - 3] + "." + domains[len - 2] + "."
+				domainName =  domains[len - 3] + "." + domains[len - 2] + "."
 						+ domains[len - 1];
 			} else if (len <= 3 && len > 1) {
 				// xxx.com or xxx.cn
-				domainName = "." + domains[len - 2] + "." + domains[len - 1];
+				domainName =  domains[len - 2] + "." + domains[len - 1];
 			} else {
 				domainName = serverName;
 			}

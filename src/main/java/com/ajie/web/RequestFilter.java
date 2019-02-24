@@ -18,6 +18,8 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.ajie.chilli.cache.redis.RedisClient;
+import com.ajie.chilli.cache.redis.RedisException;
 import com.ajie.chilli.common.ResponseResult;
 import com.ajie.chilli.utils.common.JsonUtils;
 import com.ajie.chilli.utils.common.StringUtils;
@@ -60,7 +62,7 @@ public class RequestFilter implements Filter {
 	protected String loginMode;
 
 	/** oss系统路径 */
-	protected String ossHost;
+	protected String ssoHost;
 
 	/** 编码 */
 	protected String encoding;
@@ -68,8 +70,12 @@ public class RequestFilter implements Filter {
 	/** 远程用户服务接口 */
 	protected UserService userService;
 
-	/** 登录链接 */
-	protected String loginURL;
+	/** 是否对拦截的链接进行权限判断 */
+	protected boolean checkRight;
+
+	protected static final String REDIS_PREFIX = "ACCESS-";
+
+	protected RedisClient redis;
 
 	public UserService getUserService() {
 		return userService;
@@ -95,24 +101,16 @@ public class RequestFilter implements Filter {
 		this.loginMode = loginMode;
 	}
 
-	public void setOssHost(String ossHost) {
-		this.ossHost = ossHost;
+	public void setSsoHost(String ossHost) {
+		this.ssoHost = ossHost;
 	}
 
-	public String getOssHost() {
-		return ossHost;
+	public String getSsoHost() {
+		return ssoHost;
 	}
 
 	public List<String> getUriList() {
 		return uriList;
-	}
-
-	public String getLoginURL() {
-		return loginURL;
-	}
-
-	public void setloginURL(String loginURL) {
-		this.loginURL = loginURL;
 	}
 
 	public void setUriList(List<String> uriList) {
@@ -127,6 +125,22 @@ public class RequestFilter implements Filter {
 		this.encoding = encoding;
 	}
 
+	public void setCheckRight(boolean b) {
+		this.checkRight = b;
+	}
+
+	public boolean getCheckRight() {
+		return checkRight;
+	}
+
+	public void setRedisClient(RedisClient client) {
+		this.redis = client;
+	}
+
+	public RedisClient getRedisClient() {
+		return redis;
+	}
+
 	@Override
 	public void init(FilterConfig filterConfig) throws ServletException {
 
@@ -137,19 +151,22 @@ public class RequestFilter implements Filter {
 			throws IOException, ServletException {
 		HttpServletRequest req = (HttpServletRequest) request;
 		HttpServletResponse res = (HttpServletResponse) response;
-		request.setCharacterEncoding(encoding);
+		if (null != redis) {
+			enterRecord(req);
+		}
+		request.setCharacterEncoding(null == encoding ? "utf-8" : encoding);
 		String uri = req.getRequestURI();
 		// 配置不拦截路径检验模式
 		if (StringUtils.eq(FILTER_MODE_IGNORE, mode)) {
 			// 不拦截的路径，直接过
-			if (URLUtil.match(uriList, uri)) {
+			if (URLUtil.matchs(uriList, uri)) {
 				chain.doFilter(request, response);
 				return;
 			}
 		}
 		// 拦截路径校验模式
 		if ((StringUtils.eq(FILTER_MODE_INTERCEPT, mode))) {
-			if (!URLUtil.match(uriList, uri)) {
+			if (!URLUtil.matchs(uriList, uri)) {
 				chain.doFilter(request, response);
 				return;
 			}
@@ -170,13 +187,15 @@ public class RequestFilter implements Filter {
 			gotoLogin(req, res);
 			return;
 		}
-		//
-		boolean right = RoleUtils.checkRole(user, uri);
-		if (!right) {
-			logger.debug(user.toString() + " 无访问权限: " + uri);
-			res.sendError(HttpServletResponse.SC_FORBIDDEN);
-			return;
+		if (checkRight) {
+			boolean right = RoleUtils.checkRole(user, uri);
+			if (!right) {
+				logger.debug(user.toString() + " 无访问权限: " + uri);
+				res.sendError(HttpServletResponse.SC_FORBIDDEN);
+				return;
+			}
 		}
+
 		chain.doFilter(request, response);
 	}
 
@@ -192,26 +211,62 @@ public class RequestFilter implements Filter {
 	 * @param res
 	 */
 	private void gotoLogin(HttpServletRequest req, HttpServletResponse res) {
-		StringBuffer refsb = req.getRequestURL();
+		// 拿到前端访问的host,注意Host头需要在前端代理服务器上配置
+		// 如果不配置，则host拿到的是前端代理转发的链接，而且这链接会带端口
+		// 协议
+		String protocol = req.getProtocol();
+		if (null == protocol) {
+			// 理论上不可能吧？？？
+			protocol = "http";
+		}
+		if (protocol.toLowerCase().startsWith("https")) {
+			protocol = "https";
+		} else {
+			protocol = "http";
+		}
+		// 主机名部分
+		String host = req.getHeader("Host");
+		// uri部分
+		String uri = req.getRequestURI();
+		// 参数部分
 		String query = req.getQueryString();
 		String ref = "";
-		if (null != refsb) {
-			ref = refsb.toString();
-		}
-		if (!StringUtils.isEmpty(query)) {
+		ref = protocol + "://" + host + uri;
+		if (!StringUtils.isEmpty(query)) {// 有带参
 			try {
+				// %3f解码后是?
 				ref += "%3f" + URLEncoder.encode(query, "utf-8");
 			} catch (UnsupportedEncodingException e) {
 				logger.warn("不支持utf-8字符编码转换" + query);
 			}
 		}
-		if (!ossHost.endsWith("/")) {
-			ossHost += "/";
+		if (!ssoHost.endsWith("/")) {
+			ssoHost += "/";
 		}
 		try {
-			res.sendRedirect(getOssHost() + "gotologin.do?ref=" + ref);
+			res.sendRedirect(getSsoHost() + "login.do?ref=" + ref);
 		} catch (IOException e) {
 			logger.error("跳转到oss登录页面失败");
+		}
+	}
+
+	/**
+	 * 访问记录
+	 */
+	private void enterRecord(HttpServletRequest req) {
+		String ip = req.getHeader("X-Real-IP");
+		if(null == ip){
+			return;
+		}
+		String val = redis.get(REDIS_PREFIX + ip);
+		if (null == val) {
+			try {
+				redis.set(REDIS_PREFIX + ip, 1);
+			} catch (RedisException e) {
+				logger.warn("", e);
+			}
+		} else {
+			redis.incr(REDIS_PREFIX + ip);
 		}
 	}
 
