@@ -91,6 +91,8 @@ public final class CookieUtils {
 	 * @param req
 	 * @param res
 	 * @param cookieName
+	 * @param expiry
+	 *            过期时间，单位s
 	 */
 	public static void setCookie(HttpServletRequest req, HttpServletResponse res, String name,
 			String value, int expiry) {
@@ -124,6 +126,16 @@ public final class CookieUtils {
 		setCookie(req, res, name, value, encode, -1);
 	}
 
+	/**
+	 * 
+	 * @param req
+	 * @param res
+	 * @param name
+	 * @param value
+	 * @param encode
+	 * @param expiry
+	 *            过期时间，单位s
+	 */
 	public static void setCookie(HttpServletRequest req, HttpServletResponse res, String name,
 			String value, String encode, int expiry) {
 		if (null == value)
@@ -172,11 +184,10 @@ public final class CookieUtils {
 			int len = domains.length;
 			if (len > 3) {
 				// www.xxx.com.cn 设置后三层为域名
-				domainName =  domains[len - 3] + "." + domains[len - 2] + "."
-						+ domains[len - 1];
+				domainName = domains[len - 3] + "." + domains[len - 2] + "." + domains[len - 1];
 			} else if (len <= 3 && len > 1) {
 				// xxx.com or xxx.cn
-				domainName =  domains[len - 2] + "." + domains[len - 1];
+				domainName = domains[len - 2] + "." + domains[len - 1];
 			} else {
 				domainName = serverName;
 			}

@@ -19,8 +19,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.ajie.chilli.cache.redis.RedisClient;
-import com.ajie.chilli.cache.redis.RedisException;
 import com.ajie.chilli.common.ResponseResult;
+import com.ajie.chilli.utils.Toolkits;
 import com.ajie.chilli.utils.common.JsonUtils;
 import com.ajie.chilli.utils.common.StringUtils;
 import com.ajie.chilli.utils.common.URLUtil;
@@ -52,6 +52,15 @@ public class RequestFilter implements Filter {
 	/** session过期状态吗 */
 	protected static final int SESSION_INVALID = 400;
 
+	/** 本地服务器id */
+	protected static final int NATIVE_SERVICEID = 255;
+
+	/** 本地走代理url标记，如http://www.ajie18.top/ajie/xxx */
+	protected static final String NATIVE_PROXY_MARK = "ajie";
+
+	/** 十进制的服务器id */
+	protected String serverId;
+
 	/** 验证模式 —— 拦截或忽略 */
 	protected String mode;
 
@@ -76,6 +85,14 @@ public class RequestFilter implements Filter {
 	protected static final String REDIS_PREFIX = "ACCESS-";
 
 	protected RedisClient redis;
+
+	public String getServiceId() {
+		return serverId;
+	}
+
+	public void setServiceId(String serverId) {
+		this.serverId = serverId;
+	}
 
 	public UserService getUserService() {
 		return userService;
@@ -151,24 +168,38 @@ public class RequestFilter implements Filter {
 			throws IOException, ServletException {
 		HttpServletRequest req = (HttpServletRequest) request;
 		HttpServletResponse res = (HttpServletResponse) response;
-		if (null != redis) {
+		handleServiceIdentify(req);
+
+		/*if (null != redis) {
 			enterRecord(req);
-		}
+		}*/
 		request.setCharacterEncoding(null == encoding ? "utf-8" : encoding);
 		String uri = req.getRequestURI();
 		// 配置不拦截路径检验模式
 		if (StringUtils.eq(FILTER_MODE_IGNORE, mode)) {
 			// 不拦截的路径，直接过
 			if (URLUtil.matchs(uriList, uri)) {
-				chain.doFilter(request, response);
-				return;
+				try {
+					chain.doFilter(request, response);
+					return;
+				} catch (Throwable e) {
+					// 全局异常捕捉，处理运行时异常
+					logger.error("", e);
+					throw e;
+				}
 			}
 		}
 		// 拦截路径校验模式
 		if ((StringUtils.eq(FILTER_MODE_INTERCEPT, mode))) {
 			if (!URLUtil.matchs(uriList, uri)) {
-				chain.doFilter(request, response);
-				return;
+				try {
+					chain.doFilter(request, response);
+					return;
+				} catch (Throwable e) {
+					// 全局异常捕捉，处理运行时异常
+					logger.error("", e);
+					throw e;
+				}
 			}
 		}
 
@@ -195,12 +226,42 @@ public class RequestFilter implements Filter {
 				return;
 			}
 		}
-
-		chain.doFilter(request, response);
+		try {
+			chain.doFilter(request, response);
+		} catch (Throwable e) {
+			// 全局异常捕捉，处理运行时异常
+			logger.error("", e);
+			throw e;
+		}
 	}
 
 	@Override
 	public void destroy() {
+
+	}
+
+	/**
+	 * 在请求中加入服务器id，以做区别
+	 * 
+	 * @param request
+	 */
+	private void handleServiceIdentify(HttpServletRequest request) {
+		// 只有通过代理的请求，才回有该头部
+		String ip = request.getHeader("X-Real-IP");
+		int sid = 0;
+		if (StringUtils.isEmpty(serverId)) {
+			// 本机，但通过了代理，默认0xff
+			if (null != ip)
+				sid = NATIVE_SERVICEID;
+		} else {
+			sid = Integer.valueOf(serverId);
+		}
+		if (sid == 0) {
+			// 本机并且没有通过代理，空吧，如果serviceId不为空，则需要设置
+			request.setAttribute("serverId", "");
+		} else {
+			request.setAttribute("serverId", Toolkits.deci2Hex(sid, "x"));
+		}
 
 	}
 
@@ -240,11 +301,16 @@ public class RequestFilter implements Filter {
 				logger.warn("不支持utf-8字符编码转换" + query);
 			}
 		}
+		String ssoHost = getSsoHost();
 		if (!ssoHost.endsWith("/")) {
 			ssoHost += "/";
 		}
+		if (serverId == "255") {
+			// 本地走了代理
+			ssoHost += NATIVE_PROXY_MARK + "/";
+		}
 		try {
-			res.sendRedirect(getSsoHost() + "login.do?ref=" + ref);
+			res.sendRedirect(ssoHost + "login.do?ref=" + ref);
 		} catch (IOException e) {
 			logger.error("跳转到oss登录页面失败");
 		}
@@ -253,9 +319,9 @@ public class RequestFilter implements Filter {
 	/**
 	 * 访问记录
 	 */
-	private void enterRecord(HttpServletRequest req) {
+	/*private void enterRecord(HttpServletRequest req) {
 		String ip = req.getHeader("X-Real-IP");
-		if(null == ip){
+		if (null == ip) {
 			return;
 		}
 		String val = redis.get(REDIS_PREFIX + ip);
@@ -268,7 +334,7 @@ public class RequestFilter implements Filter {
 		} else {
 			redis.incr(REDIS_PREFIX + ip);
 		}
-	}
+	}*/
 
 	public static void main(String[] args) {
 	}
