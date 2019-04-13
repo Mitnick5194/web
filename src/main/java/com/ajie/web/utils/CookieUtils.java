@@ -134,7 +134,7 @@ public final class CookieUtils {
 	 * @param value
 	 * @param encode
 	 * @param expiry
-	 *            过期时间，单位s
+	 *            过期时间，单位s，0表示立即过期，可以用作删除
 	 */
 	public static void setCookie(HttpServletRequest req, HttpServletResponse res, String name,
 			String value, String encode, int expiry) {
@@ -148,8 +148,7 @@ public final class CookieUtils {
 			}
 		}
 		Cookie cookie = new Cookie(name, value);
-		if (expiry > 0)
-			cookie.setMaxAge(expiry);
+		cookie.setMaxAge(expiry);
 		// 设置域名cookie
 		String domain = getDomain(req);
 		cookie.setDomain(domain);
