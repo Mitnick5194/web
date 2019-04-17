@@ -1,7 +1,6 @@
 package com.ajie.web;
 
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.List;
@@ -19,9 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.ajie.chilli.cache.redis.RedisClient;
-import com.ajie.chilli.common.ResponseResult;
 import com.ajie.chilli.utils.Toolkits;
-import com.ajie.chilli.utils.common.JsonUtils;
 import com.ajie.chilli.utils.common.StringUtils;
 import com.ajie.chilli.utils.common.URLUtil;
 import com.ajie.dao.pojo.TbUser;
@@ -202,10 +199,11 @@ public class RequestFilter implements Filter {
 				}
 			}
 		}
-
+		// 需要验证用户是否登录
 		TbUser user = userService.getUser(req);
 		if (null == user) {// 本地缓存没有找到 sso系统也没有找到
-			if (LOGIN_MODE_NATIVE.equals(loginMode)) {
+			// TODO 如何识别是aj请求呢？如果是aj不能重定向，该怎么处理呢？
+			/*if (LOGIN_MODE_NATIVE.equals(loginMode)) {
 				// 只适用于ajax请求
 				ResponseResult ret = ResponseResult.newResult(ResponseResult.CODE_SESSION_INVALID,
 						"session is invalid");
@@ -214,7 +212,7 @@ public class RequestFilter implements Filter {
 				writer.flush();
 				writer.close();
 				return;
-			}
+			}*/
 			gotoLogin(req, res);
 			return;
 		}
