@@ -4,3 +4,13 @@
 biz是项目名：如blog、sso
 本地规定服务器id是0xff即255
 注：serviceId配置里配十进制，使用时需要转成以x开头的16进制
+小程序请求规则：
+因小程序不能携带cookie，但能自定义头部，所以可能通过响应头保存session信息
+小程序请求规范：在header中加入标识这是小程序的请求：HDMK(header mark):MINIPGRAM(MiniProgram)
+
+aj请求返回状态码：
+200	成功
+300	 成功状态码 , 调用结果为空
+400	无session信息
+403	无权限
+500 有错误或异常抛出

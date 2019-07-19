@@ -1,6 +1,7 @@
 package com.ajie.web;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.List;
@@ -18,7 +19,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.ajie.chilli.cache.redis.RedisClient;
+import com.ajie.chilli.common.ResponseResult;
 import com.ajie.chilli.utils.Toolkits;
+import com.ajie.chilli.utils.common.JsonUtils;
 import com.ajie.chilli.utils.common.StringUtils;
 import com.ajie.chilli.utils.common.URLUtil;
 import com.ajie.dao.pojo.TbUser;
@@ -32,7 +35,7 @@ import com.ajie.sso.user.UserService;
  */
 public class RequestFilter implements Filter {
 
-	private static final Logger logger = LoggerFactory.getLogger(RequestFilter.class);
+	static final Logger logger = LoggerFactory.getLogger(RequestFilter.class);
 
 	/** 忽略模式，对配置的请求忽略拦截 */
 	protected static final String FILTER_MODE_IGNORE = "ignore";
@@ -46,11 +49,18 @@ public class RequestFilter implements Filter {
 	/** 登录模式 -- 跳转到sso系统登录 */
 	protected static final String LOGIN_MODE_SSO = "sso";
 
-	/** session过期状态吗 */
-	protected static final int SESSION_INVALID = 400;
+	/** 登录过期状态码 */
+	static final int CODE_SESSION_INVALID = 400;
+	/** 禁止访问状态码 */
+	static final int CODE_FORBIDDEN = 403;
 
 	/** 本地服务器id */
-	protected static final int NATIVE_SERVICEID = 255;
+	protected static final int NATIVE_SERVICEID = 0XFF;
+
+	/** 请求类型，头部标识 */
+	protected static final String HEADER_MARK = "HDMK";
+	/** 请求类型--小程序类型 */
+	protected static final String HEADER_MINIPROGRAM = "MINIPGRAM";
 
 	/** 本地走代理url标记，如http://www.ajie18.top/ajie/xxx */
 	protected static final String NATIVE_PROXY_MARK = "ajie";
@@ -163,15 +173,32 @@ public class RequestFilter implements Filter {
 	@Override
 	public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
 			throws IOException, ServletException {
-		HttpServletRequest req = (HttpServletRequest) request;
-		HttpServletResponse res = (HttpServletResponse) response;
-		handleServiceIdentify(req);
+		try {
+			HttpServletRequest req = (HttpServletRequest) request;
+			HttpServletResponse res = (HttpServletResponse) response;
+			handleServiceIdentify(req);
+			request.setCharacterEncoding(null == encoding ? "utf-8" : encoding);
 
-		/*if (null != redis) {
-			enterRecord(req);
-		}*/
-		request.setCharacterEncoding(null == encoding ? "utf-8" : encoding);
-		String uri = req.getRequestURI();
+			checkPath(req, res, chain);
+			checkUser(req, res, chain);
+			chain.doFilter(request, response);
+		} catch (Throwable e) {
+			// 全局异常捕捉，处理运行时异常
+			logger.error("", e);
+			throw e;
+		}
+	}
+
+	/**
+	 * 检验路径
+	 * 
+	 * @param request
+	 * @param response
+	 * @throws Throwable
+	 */
+	void checkPath(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+			throws IOException, ServletException {
+		String uri = request.getRequestURI();
 		// 配置不拦截路径检验模式
 		if (StringUtils.eq(FILTER_MODE_IGNORE, mode)) {
 			// 不拦截的路径，直接过
@@ -180,8 +207,6 @@ public class RequestFilter implements Filter {
 					chain.doFilter(request, response);
 					return;
 				} catch (Throwable e) {
-					// 全局异常捕捉，处理运行时异常
-					logger.error("", e);
 					throw e;
 				}
 			}
@@ -193,44 +218,59 @@ public class RequestFilter implements Filter {
 					chain.doFilter(request, response);
 					return;
 				} catch (Throwable e) {
-					// 全局异常捕捉，处理运行时异常
-					logger.error("", e);
 					throw e;
 				}
 			}
 		}
+	}
+
+	void checkUser(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+			throws IOException {
+		String uri = request.getRequestURI();
 		// 需要验证用户是否登录
-		TbUser user = userService.getUser(req);
-		if (null == user) {// 本地缓存没有找到 sso系统也没有找到
-			// TODO 如何识别是aj请求呢？如果是aj不能重定向，该怎么处理呢？
-			/*if (LOGIN_MODE_NATIVE.equals(loginMode)) {
+		TbUser user = userService.getUser(request);
+		String ajaxHeader = request.getHeader("X-Requested-With");// ajax请求特有的请求头
+		if (null == user) {
+			if ("XMLHttpRequest".equals(ajaxHeader)) {
 				// 只适用于ajax请求
-				ResponseResult ret = ResponseResult.newResult(ResponseResult.CODE_SESSION_INVALID,
+				ResponseResult ret = ResponseResult.newResult(CODE_SESSION_INVALID,
 						"session is invalid");
-				PrintWriter writer = response.getWriter();
-				writer.write(JsonUtils.toJSONString(ret));
-				writer.flush();
-				writer.close();
+				send_aj(response, ret);
 				return;
-			}*/
-			gotoLogin(req, res);
+			}
+			gotoLogin(request, response);
 			return;
 		}
 		if (checkRight) {
 			boolean right = RoleUtils.checkRole(user, uri);
 			if (!right) {
-				logger.debug(user.toString() + " 无访问权限: " + uri);
-				res.sendError(HttpServletResponse.SC_FORBIDDEN);
+				if (logger.isDebugEnabled()) {
+					logger.debug(user.toString() + " 无访问权限: " + uri);
+				}
+				if ("XMLHttpRequest".equals(ajaxHeader)) {
+					// 只适用于ajax请求
+					ResponseResult ret = ResponseResult.newResult(CODE_FORBIDDEN, "无权限");
+					send_aj(response, ret);
+					return;
+				}
+				response.sendError(HttpServletResponse.SC_FORBIDDEN);
 				return;
 			}
 		}
-		try {
-			chain.doFilter(request, response);
-		} catch (Throwable e) {
-			// 全局异常捕捉，处理运行时异常
-			logger.error("", e);
-			throw e;
-		}
+	}
+
+	/**
+	 * aj请求时的返回数据
+	 * 
+	 * @param response
+	 * @param ret
+	 * @throws IOException
+	 */
+	void send_aj(HttpServletResponse response, ResponseResult ret) throws IOException {
+		PrintWriter writer = response.getWriter();
+		writer.write(JsonUtils.toJSONString(ret));
+		writer.flush();
+		writer.close();
 	}
 
 	@Override
@@ -243,7 +283,7 @@ public class RequestFilter implements Filter {
 	 * 
 	 * @param request
 	 */
-	private void handleServiceIdentify(HttpServletRequest request) {
+	void handleServiceIdentify(HttpServletRequest request) {
 		// 只有通过代理的请求，才回有该头部
 		String ip = request.getHeader("X-Real-IP");
 		int sid = 0;
@@ -269,7 +309,7 @@ public class RequestFilter implements Filter {
 	 * @param req
 	 * @param res
 	 */
-	private void gotoLogin(HttpServletRequest req, HttpServletResponse res) {
+	void gotoLogin(HttpServletRequest req, HttpServletResponse res) {
 		// 拿到前端访问的host,注意Host头需要在前端代理服务器上配置
 		// 如果不配置，则host拿到的是前端代理转发的链接，而且这链接会带端口
 		// 协议
