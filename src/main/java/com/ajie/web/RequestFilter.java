@@ -2,6 +2,9 @@ package com.ajie.web;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.net.URLEncoder;
 import java.util.List;
 
@@ -18,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.ajie.chilli.cache.redis.RedisClient;
-import com.ajie.chilli.utils.Toolkits;
+import com.ajie.chilli.utils.HtmlFilter;
 import com.ajie.chilli.utils.common.StringUtils;
 import com.ajie.chilli.utils.common.URLUtil;
 import com.ajie.dao.pojo.TbUser;
@@ -32,7 +35,8 @@ import com.ajie.sso.user.UserService;
  */
 public class RequestFilter implements Filter {
 
-	private static final Logger logger = LoggerFactory.getLogger(RequestFilter.class);
+	private static final Logger logger = LoggerFactory
+			.getLogger(RequestFilter.class);
 
 	/** 忽略模式，对配置的请求忽略拦截 */
 	protected static final String FILTER_MODE_IGNORE = "ignore";
@@ -82,6 +86,12 @@ public class RequestFilter implements Filter {
 	protected static final String REDIS_PREFIX = "ACCESS-";
 
 	protected RedisClient redis;
+
+	/** 选项 */
+	protected int mark;
+
+	/** 全局开启防xss攻击 */
+	public static final int MARK_XSSDEFENSE = 1 << 0;
 
 	public String getServiceId() {
 		return serverId;
@@ -155,21 +165,29 @@ public class RequestFilter implements Filter {
 		return redis;
 	}
 
+	public void setXssOpen(boolean b) {
+		if (b) {
+			mark |= MARK_XSSDEFENSE;
+		} else {
+			mark &= ~MARK_XSSDEFENSE;
+		}
+	}
+
 	@Override
 	public void init(FilterConfig filterConfig) throws ServletException {
 
 	}
 
 	@Override
-	public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
-			throws IOException, ServletException {
-		HttpServletRequest req = (HttpServletRequest) request;
-		HttpServletResponse res = (HttpServletResponse) response;
-		handleServiceIdentify(req);
+	public void doFilter(ServletRequest request, ServletResponse response,
+			FilterChain chain) throws IOException, ServletException {
+		final HttpServletRequest req = (HttpServletRequest) request;
+		final HttpServletResponse res = (HttpServletResponse) response;
+		/* handleServiceIdentify(req); */
 
-		/*if (null != redis) {
-			enterRecord(req);
-		}*/
+		/*
+		 * if (null != redis) { enterRecord(req); }
+		 */
 		request.setCharacterEncoding(null == encoding ? "utf-8" : encoding);
 		String uri = req.getRequestURI();
 		// 配置不拦截路径检验模式
@@ -177,7 +195,7 @@ public class RequestFilter implements Filter {
 			// 不拦截的路径，直接过
 			if (URLUtil.matchs(uriList, uri)) {
 				try {
-					chain.doFilter(request, response);
+					chain.doFilter(getRequest(req), response);
 					return;
 				} catch (Throwable e) {
 					// 全局异常捕捉，处理运行时异常
@@ -190,7 +208,7 @@ public class RequestFilter implements Filter {
 		if ((StringUtils.eq(FILTER_MODE_INTERCEPT, mode))) {
 			if (!URLUtil.matchs(uriList, uri)) {
 				try {
-					chain.doFilter(request, response);
+					chain.doFilter(getRequest(req), response);
 					return;
 				} catch (Throwable e) {
 					// 全局异常捕捉，处理运行时异常
@@ -203,16 +221,14 @@ public class RequestFilter implements Filter {
 		TbUser user = userService.getUser(req);
 		if (null == user) {// 本地缓存没有找到 sso系统也没有找到
 			// TODO 如何识别是aj请求呢？如果是aj不能重定向，该怎么处理呢？
-			/*if (LOGIN_MODE_NATIVE.equals(loginMode)) {
-				// 只适用于ajax请求
-				ResponseResult ret = ResponseResult.newResult(ResponseResult.CODE_SESSION_INVALID,
-						"session is invalid");
-				PrintWriter writer = response.getWriter();
-				writer.write(JsonUtils.toJSONString(ret));
-				writer.flush();
-				writer.close();
-				return;
-			}*/
+			/*
+			 * if (LOGIN_MODE_NATIVE.equals(loginMode)) { // 只适用于ajax请求
+			 * ResponseResult ret =
+			 * ResponseResult.newResult(ResponseResult.CODE_SESSION_INVALID,
+			 * "session is invalid"); PrintWriter writer = response.getWriter();
+			 * writer.write(JsonUtils.toJSONString(ret)); writer.flush();
+			 * writer.close(); return; }
+			 */
 			gotoLogin(req, res);
 			return;
 		}
@@ -225,12 +241,19 @@ public class RequestFilter implements Filter {
 			}
 		}
 		try {
-			chain.doFilter(request, response);
+			chain.doFilter(getRequest(req), response);
 		} catch (Throwable e) {
 			// 全局异常捕捉，处理运行时异常
 			logger.error("", e);
 			throw e;
 		}
+	}
+
+	private HttpServletRequest getRequest(HttpServletRequest req) {
+		if ((mark & MARK_XSSDEFENSE) == MARK_XSSDEFENSE) {
+			return getProxyRequest(req);
+		}
+		return req;
 	}
 
 	@Override
@@ -243,25 +266,17 @@ public class RequestFilter implements Filter {
 	 * 
 	 * @param request
 	 */
-	private void handleServiceIdentify(HttpServletRequest request) {
-		// 只有通过代理的请求，才回有该头部
-		String ip = request.getHeader("X-Real-IP");
-		int sid = 0;
-		if (StringUtils.isEmpty(serverId)) {
-			// 本机，但通过了代理，默认0xff
-			if (null != ip)
-				sid = NATIVE_SERVICEID;
-		} else {
-			sid = Integer.valueOf(serverId);
-		}
-		if (sid == 0) {
-			// 本机并且没有通过代理，空吧，如果serviceId不为空，则需要设置
-			request.setAttribute("serverId", "");
-		} else {
-			request.setAttribute("serverId", Toolkits.deci2Hex(sid, "x"));
-		}
-
-	}
+	/*
+	 * private void handleServiceIdentify(HttpServletRequest request) { //
+	 * 只有通过代理的请求，才回有该头部 String ip = request.getHeader("X-Real-IP"); int sid = 0;
+	 * if (StringUtils.isEmpty(serverId)) { // 本机，但通过了代理，默认0xff if (null != ip)
+	 * sid = NATIVE_SERVICEID; } else { sid = Integer.valueOf(serverId); } if
+	 * (sid == 0) { // 本机并且没有通过代理，空吧，如果serviceId不为空，则需要设置
+	 * request.setAttribute("serverId", ""); } else {
+	 * request.setAttribute("serverId", Toolkits.deci2Hex(sid, "x")); }
+	 * 
+	 * }
+	 */
 
 	/**
 	 * 跳到sso系统进行登录
@@ -285,8 +300,12 @@ public class RequestFilter implements Filter {
 		}
 		// 主机名部分
 		String host = req.getHeader("Host");
-		// uri部分
-		String uri = req.getRequestURI();
+		// uri经过了代理可能会发生变化，所以需要从头部里取出，nginx设置proxy_set_header uri $request_uri;
+		String uri = req.getHeader("uri");
+		if (null == uri) {
+			// uri部分
+			uri = req.getRequestURI();
+		}
 		// 参数部分
 		String query = req.getQueryString();
 		String ref = "";
@@ -308,31 +327,50 @@ public class RequestFilter implements Filter {
 			ssoHost += NATIVE_PROXY_MARK + "/";
 		}
 		try {
-			res.sendRedirect(ssoHost + "login.do?ref=" + ref);
+			res.sendRedirect(ssoHost + "login?ref=" + ref);
 		} catch (IOException e) {
 			logger.error("跳转到oss登录页面失败");
 		}
 	}
 
 	/**
+	 * 动态代理
+	 * 
+	 * @param request
+	 * @return
+	 */
+	private HttpServletRequest getProxyRequest(final HttpServletRequest request) {
+		return (HttpServletRequest) Proxy.newProxyInstance(this.getClass()
+				.getClassLoader(), request.getClass().getInterfaces(),
+				new InvocationHandler() {
+
+					@Override
+					public Object invoke(Object proxy, Method method,
+							Object[] args) throws Throwable {
+						if ("getParameter".equals(method.getName())) {
+							String origin = (String) method.invoke(request,
+									args);
+							if (StringUtils.isEmpty(origin)) {
+								return origin;
+							}
+							return HtmlFilter.escape(origin);
+						} else {
+							return method.invoke(request, args);
+						}
+					}
+				});
+	}
+
+	/**
 	 * 访问记录
 	 */
-	/*private void enterRecord(HttpServletRequest req) {
-		String ip = req.getHeader("X-Real-IP");
-		if (null == ip) {
-			return;
-		}
-		String val = redis.get(REDIS_PREFIX + ip);
-		if (null == val) {
-			try {
-				redis.set(REDIS_PREFIX + ip, 1);
-			} catch (RedisException e) {
-				logger.warn("", e);
-			}
-		} else {
-			redis.incr(REDIS_PREFIX + ip);
-		}
-	}*/
+	/*
+	 * private void enterRecord(HttpServletRequest req) { String ip =
+	 * req.getHeader("X-Real-IP"); if (null == ip) { return; } String val =
+	 * redis.get(REDIS_PREFIX + ip); if (null == val) { try {
+	 * redis.set(REDIS_PREFIX + ip, 1); } catch (RedisException e) {
+	 * logger.warn("", e); } } else { redis.incr(REDIS_PREFIX + ip); } }
+	 */
 
 	public static void main(String[] args) {
 	}
