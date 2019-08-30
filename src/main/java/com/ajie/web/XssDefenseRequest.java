@@ -45,21 +45,47 @@ public class XssDefenseRequest implements HttpServletRequest {
 	protected List<String> escapeList;
 	protected int mode;
 
+	/**
+	 * 过滤所有标签
+	 * 
+	 * @param request
+	 * @return
+	 */
 	public XssDefenseRequest(HttpServletRequest request) {
 		this.request = request;
 		mode = MODE_ALL;
 	}
 
+	/**
+	 * 指定模式和指定标签过滤
+	 * 
+	 * @param request
+	 * @param mode
+	 * @param list
+	 */
 	public XssDefenseRequest(HttpServletRequest request, int mode, List<String> list) {
 		this.request = request;
 		this.mode = mode;
 		this.escapeList = list;
 	}
 
+	/**
+	 * 过滤所有标签
+	 * 
+	 * @param request
+	 * @return
+	 */
 	static public HttpServletRequest toXssDefenseRequest(HttpServletRequest request) {
 		return new XssDefenseRequest(request);
 	}
 
+	/**
+	 * 指定模式和指定标签过滤
+	 * 
+	 * @param request
+	 * @param mode
+	 * @param list
+	 */
 	static public HttpServletRequest toXssDefenseRequest(HttpServletRequest request, int mode,
 			List<String> list) {
 		return new XssDefenseRequest(request, mode, list);

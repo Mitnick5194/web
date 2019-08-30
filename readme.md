@@ -8,3 +8,13 @@ biz是项目名：如blog、sso
 使用下面的：
 由于使用nginx反向代理后程序获取到的url是代理后的（如浏览器访问www.nzjie.cn/loadblogs，经过代理访问链接编程127.0.0.1:8080/blog/loadblogs，如果程序直接过去url和uri，得到的结果是代理后的），在处理一些重定向或转发就会导致路径不一致，可以在nginx将原信息放到header里面解决这个问题
 proxy_set_header uri  $request_uri;
+小程序请求规则：
+因小程序不能携带cookie，但能自定义头部，所以可能通过响应头保存session信息
+小程序请求规范：在header中加入标识这是小程序的请求：HDMK(header mark):MINIPGRAM(MiniProgram)
+
+aj请求返回状态码：
+200	成功
+300	 成功状态码 , 调用结果为空
+400	无session信息
+403	无权限
+500 有错误或异常抛出
