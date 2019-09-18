@@ -184,8 +184,12 @@ public class RequestFilter implements Filter {
 			HttpServletRequest req = (HttpServletRequest) request;
 			HttpServletResponse res = (HttpServletResponse) response;
 			request.setCharacterEncoding(null == encoding ? "utf-8" : encoding);
-			checkPath(req, res, chain);
-			checkUser(req, res, chain);
+			if (checkPath(req, res, chain)) {
+				return;
+			}
+			if (checkUser(req, res, chain)) {
+				return;
+			}
 			chain.doFilter(getRequest(req), response);
 		} catch (Throwable e) {
 			// 全局异常捕捉，处理运行时异常
@@ -200,36 +204,38 @@ public class RequestFilter implements Filter {
 	 * @param request
 	 * @param response
 	 * @throws Throwable
+	 * @return 进入doFilter则返回true
 	 */
-	void checkPath(HttpServletRequest request, HttpServletResponse response,
+	boolean checkPath(HttpServletRequest request, HttpServletResponse response,
 			FilterChain chain) throws IOException, ServletException {
 		String uri = request.getRequestURI();
 		// 配置不拦截路径检验模式
 		if (StringUtils.eq(FILTER_MODE_IGNORE, mode)) {
 			// 不拦截的路径，直接过
 			if (URLUtil.matchs(uriList, uri)) {
-				try {
-					chain.doFilter(request, response);
-					return;
-				} catch (Throwable e) {
-					throw e;
-				}
+				chain.doFilter(request, response);
+				return true;
 			}
 		}
 		// 拦截路径校验模式
 		if ((StringUtils.eq(FILTER_MODE_INTERCEPT, mode))) {
 			if (!URLUtil.matchs(uriList, uri)) {
-				try {
-					chain.doFilter(getRequest(request), response);
-					return;
-				} catch (Throwable e) {
-					throw e;
-				}
+				chain.doFilter(getRequest(request), response);
+				return true;
 			}
 		}
+		return false;
 	}
 
-	void checkUser(HttpServletRequest request, HttpServletResponse response,
+	/**
+	 * 
+	 * @param request
+	 * @param response
+	 * @param chain
+	 * @return true表示处理完毕，可以直接返回，调用者不需要在继续往下执行
+	 * @throws IOException
+	 */
+	boolean checkUser(HttpServletRequest request, HttpServletResponse response,
 			FilterChain chain) throws IOException {
 		String uri = request.getRequestURI();
 		// 需要验证用户是否登录
@@ -241,10 +247,10 @@ public class RequestFilter implements Filter {
 				ResponseResult ret = ResponseResult.newResult(
 						CODE_SESSION_INVALID, "session is invalid");
 				send_aj(response, ret);
-				return;
+				return true;
 			}
 			gotoLogin(getRequest(request), response);
-			return;
+			return true;
 		}
 		if (checkRight) {
 			boolean right = RoleUtils.checkRole(user, uri);
@@ -257,12 +263,13 @@ public class RequestFilter implements Filter {
 					ResponseResult ret = ResponseResult.newResult(
 							CODE_FORBIDDEN, "无权限");
 					send_aj(response, ret);
-					return;
+					return true;
 				}
 				response.sendError(HttpServletResponse.SC_FORBIDDEN);
-				return;
+				return true;
 			}
 		}
+		return false;
 	}
 
 	/**
